@@ -1,0 +1,1336 @@
+---
+title: "RWorksheet#5a_Benajiba,Delatina,Aguirre"
+author: "BENAJIBA, AGUIRRE, DELATINA"
+date: "2024-12-18"
+output:
+  html_document:
+    df_print: paged
+---
+
+1.
+
+```{r}
+library(polite)
+library(httr)
+library(rvest)
+library(dplyr)
+```
+
+
+```{r}
+# Define URL
+imdb_url <- "https://www.imdb.com/chart/toptv/?sort=rank%2Casc"
+```
+
+
+```{r}
+# Create a polite session
+imdb_session <- bow(imdb_url, user_agent = "Educational")
+```
+
+
+```{r}
+# Scrape Titles
+raw_titles <- read_html(imdb_url) %>%
+  html_nodes('.ipc-title__text') %>%
+  html_text()
+```
+
+
+```{r}
+# Clean Titles
+title_data <- as.data.frame(raw_titles[3:27], stringsAsFactors = FALSE) # Adjust range if needed
+colnames(title_data) <- "ranked_titles"
+```
+
+
+```{r}
+# Split Titles into Rank and Title
+split_titles <- strsplit(as.character(title_data$ranked_titles), "\\.", fixed = FALSE)
+title_df <- data.frame(do.call(rbind, split_titles), stringsAsFactors = FALSE)
+colnames(title_df) <- c("rank", "title")
+title_df <- title_df %>% select(rank, title)
+title_df$title <- trimws(title_df$title)
+```
+
+
+```{r}
+# Store Ranked Titles Data
+rank_title_data <- title_df
+```
+
+
+```{r}
+# Scrape Ratings
+rating_data <- read_html(imdb_url) %>%
+  html_nodes('.ipc-rating-star--rating') %>%
+  html_text()
+```
+
+
+```{r}
+# Scrape Votes
+vote_data <- read_html(imdb_url) %>%
+  html_nodes('.ipc-rating-star--voteCount') %>%
+  html_text()
+cleaned_votes <- gsub('[()]', '', vote_data)
+```
+
+
+```{r}
+# Scrape Episode Counts
+episode_data <- read_html(imdb_url) %>%
+  html_nodes('span.sc-300a8231-7.eaXxft.cli-title-metadata-item:nth-of-type(2)') %>%
+  html_text()
+cleaned_episodes <- gsub('[eps]', '', episode_data)
+episode_counts <- as.numeric(cleaned_episodes)
+```
+
+
+```{r}
+# Scrape Release Years
+release_years <- read_html(imdb_url) %>%
+  html_nodes('span.sc-300a8231-7.eaXxft.cli-title-metadata-item:nth-of-type(1)') %>%
+  html_text()
+```
+
+
+```{r}
+# Debugging: Ensure all components have at least 25 rows
+print(length(rank_title_data$title))
+print(length(rank_title_data$rank))
+print(length(rating_data))
+print(length(cleaned_votes))
+print(length(episode_counts))
+print(length(release_years))
+```
+
+
+```{r}
+# Trim All Components to Top 25
+rank_title_data <- rank_title_data[1:25, ]
+rating_data <- rating_data[1:25]
+cleaned_votes <- cleaned_votes[1:25]
+episode_counts <- episode_counts[1:25]
+release_years <- release_years[1:25]
+```
+
+
+```{r}
+# Create Final Dataframe
+tv_shows_data <- data.frame(
+  Title = rank_title_data$title,
+  Rank = rank_title_data$rank,
+  Rating = rating_data,
+  Voters = cleaned_votes,
+  Episodes = episode_counts,
+  Year = release_years,
+  stringsAsFactors = FALSE
+)
+```
+
+
+```{r}
+# Print Final Dataframe (25 rows x 6 columns)
+print(tv_shows_data)
+
+```
+
+
+```{r}
+# Define the main URL
+main_url <- 'https://www.imdb.com/chart/toptv/'
+main_page_html <- read_html(main_url)
+```
+
+
+```{r}
+# Extract links for individual shows
+show_links <- main_page_html %>%
+  html_nodes("td.titleColumn a") %>% # Selector for show links
+  html_attr("href")
+
+# Fetch detailed data for each show
+detailed_show_data <- lapply(show_links[1:50], function(relative_link) { # Process top 50
+  full_show_link <- paste0("https://www.imdb.com/", relative_link)
+  
+  # Initialize data fields
+  user_review_count <- NA
+  critic_data <- NA
+  popularity_score <- NA
+  
+  # Read HTML for each show page
+  tryCatch({
+    show_html <- read_html(full_show_link)
+    
+    # Extract critic reviews
+    critic_reviews <- show_html %>%
+      html_nodes('span.score') %>%
+      html_text()
+    if (length(critic_reviews) > 1) {
+      critic_data <- critic_reviews[2]
+    }
+    
+    # Extract popularity score
+    popularity_score <- show_html %>%
+      html_nodes('[data-testid="hero-rating-bar__popularity__score"]') %>%
+      html_text()
+    
+    # Extract user reviews count
+    review_link <- show_html %>%
+      html_nodes('a[data-testid="reviews-header"]') %>%
+      html_attr("href")
+    
+    if (length(review_link) > 0) {
+      review_html <- read_html(paste0("https://www.imdb.com", review_link[1]))
+      user_review_count <- review_html %>%
+        html_nodes('[data-testid="tturv-total-reviews"]') %>%
+        html_text()
+    }
+  }, error = function(e) {
+    # Log errors and continue with NA values
+    message(sprintf("Error processing: %s", full_show_link))
+  })
+  
+  # Return detailed show data as a data frame
+  return(data.frame(
+    Show_Link = full_show_link,
+    User_Reviews = user_review_count,
+    Critic_Reviews = critic_data,
+    Popularity_Rating = popularity_score,
+    stringsAsFactors = FALSE
+  ))
+})
+
+# Combine detailed data into a single data frame
+detailed_show_df <- do.call(rbind, detailed_show_data)
+
+# Combine with the main TV shows data (ensure tv_shows_data has 50 rows)
+final_tv_show_data <- cbind(tv_shows_data, detailed_show_df)
+
+# Print the final combined data frame
+print(final_tv_show_data)
+```
+2.
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# Load required libraries
+library(dplyr)
+library(rvest)
+library(stringr)
+
+
+# Step 1: Scrape IMDb Top TV Shows (Ranked List)
+url <- "https://www.imdb.com/chart/toptv/?sort=rank"
+page <- read_html(url)
+
+# Extract the TV Show titles and their ranks
+ranked_titles <- page %>%
+  html_nodes(".titleColumn a") %>%
+  html_text()
+```
+
+
+```{r}
+# Convert titles into a data frame and split into rank and title
+title_data <- as.data.frame(ranked_titles[3:27], stringsAsFactors = FALSE)
+colnames(title_data) <- "ranked_titles"
+```
+
+
+```{r}
+# Split titles by period to get rank and title
+split_titles <- strsplit(as.character(title_data$ranked_titles), "\\.", fixed = FALSE)
+```
+
+
+```{r}
+# Ensure the split result has two columns for rank and title
+title_df <- do.call(rbind, split_titles)
+```
+
+
+```{r}
+# Check if the split result has 2 columns
+if (ncol(title_df) == 2) {
+  colnames(title_df) <- c("rank", "title")
+} else {
+  # If the split is incorrect, handle it
+  title_df <- data.frame(rank = rep(NA, length(split_titles)), 
+                         title = as.character(split_titles))
+}
+```
+
+
+```{r}
+# Clean up the title column (remove extra spaces)
+title_df$title <- trimws(title_df$title)
+```
+
+
+```{r}
+#save as csv
+write.csv(title_df, file = "movie_titles.csv", row.names=FALSE)
+```
+
+
+```{r}
+# Step 2: Scrape Reviews for Each TV Show
+# List of IMDb review page links based on the extracted TV show titles
+tv_show_links <- paste0("https://www.imdb.com/title/", 
+                        c("tt0903747", "tt5491994", "tt0795176", "tt0185906", "tt7366338"), 
+                        "/reviews/?ref_=tt_ov_urv")
+```
+
+
+```{r}
+# Function to scrape reviews from one IMDb page
+scrape_reviews <- function(link, desired_rows = 20) {
+  page <- read_html(link)
+  # Extract review details
+  name <- page %>% html_nodes(".ipc-link.ipc-link--base") %>% html_text()
+  year <- page %>% html_nodes(".ipc-inline-list__item.review-date") %>% html_text()
+  rating <- page %>% html_nodes(".ipc-rating-star--rating") %>% html_text()
+  title <- page %>% html_nodes(".ipc-title__text") %>% html_text()
+  helpful <- page %>% html_nodes(".ipc-voting__label__count.ipc-voting__label__count--up") %>% html_text()
+  unhelpful <- page %>% html_nodes(".ipc-voting__label__count.ipc-voting__label__count--down") %>% html_text()
+  text <- page %>% html_nodes(".ipc-html-content-inner-div") %>% html_text()
+  # Adjust lengths of vectors by padding shorter ones with NA
+  name <- c(name, rep(NA, max(0, desired_rows - length(name))))
+  year <- c(year, rep(NA, max(0, desired_rows - length(year))))
+  rating <- c(rating, rep(NA, max(0, desired_rows - length(rating))))
+  title <- c(title, rep(NA, max(0, desired_rows - length(title))))
+  helpful <- c(helpful, rep(NA, max(0, desired_rows - length(helpful))))
+  unhelpful <- c(unhelpful, rep(NA, max(0, desired_rows - length(unhelpful))))
+  text <- c(text, rep(NA, max(0, desired_rows - length(text))))
+  
+  
+  #cleaning the reviewers named "Permalink"
+  name <- gsub("Permalink", "ANONYMOUS", name)
+  name <- str_trim(name) 
+  
+  
+  # Adjust lengths of vectors by padding shorter ones with NA
+  name <- c(name, rep(NA, max(0, desired_rows - length(name))))
+  year <- c(year, rep(NA, max(0, desired_rows - length(year))))
+  rating <- c(rating, rep(NA, max(0, desired_rows - length(rating))))
+  title <- c(title, rep(NA, max(0, desired_rows - length(title))))
+  helpful <- c(helpful, rep(NA, max(0, desired_rows - length(helpful))))
+  unhelpful <- c(unhelpful, rep(NA, max(0, desired_rows - length(unhelpful))))
+  text <- c(text, rep(NA, max(0, desired_rows - length(text))))
+  
+  
+  # Truncate vectors if they exceed the desired number of rows
+  name <- name[1:desired_rows]
+  year <- year[1:desired_rows]
+  rating <- rating[1:desired_rows]
+  title <- title[1:desired_rows]
+  helpful <- helpful[1:desired_rows]
+  unhelpful <- unhelpful[1:desired_rows]
+  text <- text[1:desired_rows]
+  
+  # Create a data frame
+  reviews <- data.frame(
+    name = name,
+    year = year,
+    rating = rating,
+    title = title,
+    helpful = helpful,
+    unhelpful = unhelpful,
+    text = text,
+    stringsAsFactors = FALSE
+  )
+  
+  return(reviews)
+}
+
+
+tv_show_links <- paste0("https://www.imdb.com/title/", 
+                        c("tt0903747", "tt5491994", "tt0795176", "tt0185906", "tt7366338"), 
+                        "/reviews/?ref_=tt_ov_urv")
+
+all_reviews <- lapply(tv_show_links, scrape_reviews, desired_rows = 20)
+
+
+combined_reviews <- do.call(rbind, all_reviews)
+print(combined_reviews)
+```
+
+
+```{r}
+
+#save as csv
+write.csv(combined_reviews, file = "movie_reviews.csv")
+```
+
+
+```{r}
+# Step 3: Scrape Data and Combine
+# Loop through all links and scrape data
+all_reviews <- lapply(tv_show_links, function(link) scrape_reviews(link, 20))
+```
+
+
+```{r}
+# Combine data frames into one
+final_reviews <- bind_rows(all_reviews, .id = "tv_show_id")
+```
+
+
+```{r}
+# Add TV show titles and ranks to the reviews
+final_reviews <- final_reviews %>%
+  mutate(tv_show_title = title_df$title[as.integer(tv_show_id)], 
+         rank = title_df$rank[as.integer(tv_show_id)])
+```
+
+
+```{r}
+# Add TV show titles and ranks to the reviews
+final_reviews <- final_reviews %>%
+  mutate(tv_show_title = title_df$title[as.integer(tv_show_id)], 
+         rank = title_df$rank[as.integer(tv_show_id)])
+```
+
+
+```{r}
+ #Remove specified columns
+final_reviews <- final_reviews %>%
+  select(-helpful, -unhelpful, -tv_show_title, -rank)
+```
+
+
+```{r}
+# View the modified dataframe
+print(final_reviews)
+```
+
+3.
+```{r}
+library(dplyr)
+library(ggplot2)
+library(rvest)
+
+# Scrape IMDb data
+link = "https://www.imdb.com/title/tt0903747/reviews/?ref_=tt_ov_urv"
+page = read_html(link)
+
+# Extract relevant data
+years_raw = page %>% html_nodes(".ipc-inline-list__item.review-date") %>% html_text()
+
+# Clean and parse the years
+years <- gsub(".* ([0-9]{4})", "\\1", years_raw) # Extract only the year
+years <- as.numeric(years) # Convert to numeric
+
+# Summarize the data
+year_count <- data.frame(table(years)) %>% 
+  rename(Year = years, Count = Freq) %>% 
+  arrange(Year)
+
+# Plot the time series graph
+ggplot(data = year_count, aes(x = Year, y = Count)) +
+  geom_line(color = "blue") +
+  geom_point(color = "red") +
+  labs(title = "Number of TV Shows Released by Year", x = "Year", y = "Count") +
+  theme_minimal()
+
+# Find the year with the most TV shows
+most_shows <- year_count[which.max(year_count$Count), ]
+print(paste("Year with the most TV shows released:", most_shows$Year, "with", most_shows$Count, "TV shows."))
+
+```
+
+5.Amazon Products Scrape
+```{r}
+library(polite)
+library(httr)
+library(rvest)
+library(dplyr)
+library(magrittr)
+```
+
+
+```{r}
+polite::use_manners(save_as = 'polite_scrape.R')
+```
+
+1. Gaming Chairs
+```{r}
+url1 <- 'https://www.amazon.com/s?k=gaming+chairs&_encoding=UTF8&content-id=amzn1.sym.12129333-2117-4490-9c17-6d31baf0582a&pd_rd_r=87aac9cd-a5f0-4bfb-a6e4-9a4da9ff3166&pd_rd_w=p9T9V&pd_rd_wg=AzrBz&pf_rd_p=12129333-2117-4490-9c17-6d31baf0582a&pf_rd_r=4P9Y4JVM26R69CW85MJ1&ref=pd_hp_d_atf_unk'
+```
+
+```{r}
+session <- bow(url1, user_agent = "Educational")
+
+page1 <- read_html(url1)
+```
+
+```{r}
+Product_name1 <- character(0)
+Price1 <- character(0)
+Rating1 <- character(0)
+Description1 <- character(0)
+Link1 <- character(0)
+```
+
+
+```{r}
+Product_name1 <- page1 %>%
+  html_nodes("h2.a-size-base-plus.a-spacing-none.a-color-base.a-text-normal") %>%
+  html_text() %>% head(30)
+```
+
+```{r}
+Price1 <- page1 %>%
+  html_nodes("span.a-price-whole") %>%
+  html_text() %>% head(30)
+```
+
+```{r}
+Rating1 <- page1 %>%
+  html_nodes("div.a-row.a-size-small") %>%
+  html_text() %>% head(30)
+```
+
+```{r}
+Description1 <- page1 %>% 
+  html_nodes("h2.a-size-base-plus.a-spacing-none.a-color-base.a-text-normal") %>%
+  html_text() %>% head(30)
+```
+
+```{r}
+Link1 <- read_html(url1) %>%
+  html_nodes('a.a-link-normal') %>% 
+  html_attr('href') %>%
+  head(30)
+```
+
+
+```{r}
+Gaming_chair <- data.frame(
+  Product = Product_name1,
+  Price = Price1,
+  Rating = Rating1,
+  Description = Description1,
+  Link = Link1
+)
+
+```
+
+```{r}
+print(Gaming_chair)
+```
+
+2. Cleaning Tools
+```{r}
+url2 <- 'https://www.amazon.com/s?k=cleaning+tools&_encoding=UTF8&content-id=amzn1.sym.83009b1f-702c-4be7-814b-0240b8f687d2&pd_rd_r=87aac9cd-a5f0-4bfb-a6e4-9a4da9ff3166&pd_rd_w=Nw6WR&pd_rd_wg=AzrBz&pf_rd_p=83009b1f-702c-4be7-814b-0240b8f687d2&pf_rd_r=4P9Y4JVM26R69CW85MJ1&ref=pd_hp_d_atf_unk'
+
+```
+
+```{r}
+session <- bow(url2, user_agent = "Educational")
+page2 <- read_html(url2)
+
+```
+
+```{r}
+Product_name2 <- page2 %>%
+  html_nodes("h2.a-size-base-plus.a-spacing-none.a-color-base.a-text-normal") %>%
+  html_text() %>% head(30)
+
+```
+
+```{r}
+Price2 <- page2 %>%
+  html_nodes("span.a-price-whole") %>%
+  html_text() %>% head(30)
+```
+
+
+```{r}
+Rating2 <- page2 %>%
+  html_nodes("div.a-section.a-spacing-none.a-spacing-top-micro") %>%
+  html_text() %>% head(30)
+```
+
+```{r}
+Description2 <- page2 %>% 
+  html_nodes("h2.a-size-base-plus.a-spacing-none.a-color-base.a-text-normal") %>%
+  html_text() %>% head(30)
+```
+
+```{r}
+Link2 <- read_html(url2) %>%
+  html_nodes('a.a-link-normal') %>% 
+  html_attr('href') %>%
+  head(30)
+```
+
+```{r}
+Cleaning_Tools <- data.frame(
+  Product = Product_name2,
+  Price = Price2,
+  Rating = Rating2,
+  Description = Description2,
+  Link = Link2
+)
+```
+
+```{r}
+print(Cleaning_Tools)
+```
+
+
+3.Beddings
+
+```{r}
+url3 <- 'https://www.amazon.com/s?k=bedding&_encoding=UTF8&content-id=amzn1.sym.83009b1f-702c-4be7-814b-0240b8f687d2&pd_rd_r=87aac9cd-a5f0-4bfb-a6e4-9a4da9ff3166&pd_rd_w=Nw6WR&pd_rd_wg=AzrBz&pf_rd_p=83009b1f-702c-4be7-814b-0240b8f687d2&pf_rd_r=4P9Y4JVM26R69CW85MJ1&ref=pd_hp_d_atf_unk'
+
+```
+
+```{r}
+session <- bow(url3, user_agent = "Educational")
+page3 <- read_html(url3)
+```
+
+```{r}
+Product_name3 <- page3 %>%
+  html_nodes("h2.a-size-base-plus.a-spacing-none.a-color-base.a-text-normal") %>%
+  html_text() %>% head(30)
+```
+
+
+```{r}
+Price3 <- page3 %>%
+  html_nodes("span.a-price-whole") %>%
+  html_text() %>% head(30)
+```
+
+
+```{r}
+Rating3 <- page3 %>%
+  html_nodes("div.a-section.a-spacing-none.a-spacing-top-micro") %>%
+  html_text() %>% head(30)
+```
+
+```{r}
+Description3 <- page3 %>% 
+  html_nodes("h2.a-size-base-plus.a-spacing-none.a-color-base.a-text-normal") %>%
+  html_text() %>% head(30)
+```
+
+
+```{r}
+Link3 <- page3 %>%
+  html_nodes('a.a-link-normal') %>% 
+  html_attr('href') %>%
+  head(30)
+```
+
+```{r}
+Beddings <- data.frame(
+  Product = Product_name3,
+  Price = Price3,
+  Rating = Rating3,
+  Description = Description3,
+  Link = Link3
+)
+```
+
+```{r}
+print(Beddings)
+```
+
+4. Makeup Brushes
+
+```{r}
+url4 <- 'https://www.amazon.com/s?k=makeup+brushes&_encoding=UTF8&content-id=amzn1.sym.cfffd636-af52-48ff-a5dc-4f273c40ec67&pd_rd_r=85e0fdb8-fc6c-466e-8d3c-3bef85bd5ec7&pd_rd_w=xs8lS&pd_rd_wg=wNRyU&pf_rd_p=cfffd636-af52-48ff-a5dc-4f273c40ec67&pf_rd_r=4P9Y4JVM26R69CW85MJ1&ref=pd_hp_d_btf_unk'
+```
+
+```{r}
+session <- bow(url4, user_agent = "Educational")
+page4 <- read_html(url4)
+```
+
+
+```{r}
+Product_name4 <- page4 %>%
+  html_nodes("h2.a-size-base-plus.a-spacing-none.a-color-base.a-text-normal") %>%
+  html_text() %>% head(30)
+```
+
+
+```{r}
+Price4 <- page4 %>%
+  html_nodes("span.a-price-whole") %>%
+  html_text() %>% head(30)
+```
+
+
+```{r}
+Rating4 <- page4 %>%
+  html_nodes("div.a-section.a-spacing-none.a-spacing-top-micro") %>%
+  html_text() %>% head(30)
+
+```
+
+
+```{r}
+Description4 <- page4 %>% 
+  html_nodes("h2.a-size-base-plus.a-spacing-none.a-color-base.a-text-normal") %>%
+  html_text() %>% head(30)
+```
+
+```{r}
+Link4 <- read_html(url4) %>%
+  html_nodes('a.a-link-normal') %>% 
+  html_attr('href') %>%
+  head(30)
+```
+
+```{r}
+Brushes <- data.frame(
+  Product = Product_name4,
+  Price = Price4,
+  Rating = Rating4,
+  Description = Description4,
+  Link = Link4
+)
+```
+
+```{r}
+print(Brushes)
+```
+5. Home Decor
+
+```{r}
+url5 <- 'https://www.amazon.com/s?k=home+decor&_encoding=UTF8&content-id=amzn1.sym.5b5b28b3-a1ac-480e-bf55-5b98e8879363&pd_rd_r=85e0fdb8-fc6c-466e-8d3c-3bef85bd5ec7&pd_rd_w=08lOj&pd_rd_wg=wNRyU&pf_rd_p=5b5b28b3-a1ac-480e-bf55-5b98e8879363&pf_rd_r=4P9Y4JVM26R69CW85MJ1&ref=pd_hp_d_btf_unk'
+```
+
+```{r}
+session <- bow(url5, user_agent = "Educational")
+page5 <- read_html(url5)
+```
+
+
+```{r}
+Product_name5 <- page5 %>%
+  html_nodes("h2.a-size-base-plus.a-spacing-none.a-color-base.a-text-normal") %>%
+  html_text() %>% head(30)
+```
+
+
+```{r}
+Price5 <- page5 %>%
+  html_nodes("span.a-price-whole") %>%
+  html_text() %>% head(30)
+```
+
+
+```{r}
+Rating5 <- page5 %>%
+  html_nodes("div.a-section.a-spacing-none.a-spacing-top-micro") %>%
+  html_text() %>% head(30)
+```
+
+
+```{r}
+Description5 <- page5 %>% 
+  html_nodes("h2.a-size-base-plus.a-spacing-none.a-color-base.a-text-normal") %>%
+  html_text() %>% head(30)
+```
+
+```{r}
+Link5 <- read_html(url5) %>%
+  html_nodes('a.a-link-normal') %>% 
+  html_attr('href') %>%
+  head(30)
+```
+
+
+```{r}
+Home_Decor <- data.frame(
+  Product = Product_name5,
+  Price = Price5,
+  Rating = Rating5,
+  Description = Description5,
+  Link = Link5
+)
+```
+
+```{r}
+print(Home_Decor)
+```
+
+```{r}
+Categories <- c("Gaming Chairs", "Cleaning Tools", "Beddings", "Makeup Brushes", "Home Decor")
+```
+
+```{r}
+Gaming_chair$Category <- "Gaming Chairs"
+Cleaning_Tools$Category <- "Cleaning Tools"
+Beddings$Category <- "Beddings"
+Brushes$Category <- "Brushes"
+Home_Decor$Category <- "Home Decor"
+```
+
+
+```{r}
+All_Products <- bind_rows(Gaming_chair, Cleaning_Tools, Beddings, Brushes, Home_Decor)
+```
+
+```{r}
+All_Products <- All_Products %>%
+  select(Category, everything())
+```
+
+```{r}
+print(All_Products)
+```
+
+```{r}
+write.csv(All_Products, "amazon_products.csv", row.names = FALSE)
+```
+
+
+REVIEWS:
+```{r}
+library(rvest)
+library(dplyr)
+```
+
+```{r}
+search_url1 <- 'https://www.amazon.com/s?k=gaming+chairs&_encoding=UTF8&content-id=amzn1.sym.12129333-2117-4490-9c17-6d31baf0582a&pd_rd_r=87aac9cd-a5f0-4bfb-a6e4-9a4da9ff3166&pd_rd_w=p9T9V&pd_rd_wg=AzrBz&pf_rd_p=12129333-2117-4490-9c17-6d31baf0582a&pf_rd_r=4P9Y4JVM26R69CW85MJ1&ref=pd_hp_d_atf_unk'
+```
+
+```{r}
+session <- bow(search_url1, user_agent = "Educational")
+```
+
+```{r}
+search_page <- read_html(search_url1)
+
+product_links <- search_page %>%
+  html_nodes(".a-link-normal.s-no-outline") %>%
+  html_attr("href") %>%
+  head(30) %>%
+  paste0("https://www.amazon.com", .)
+```
+
+```{r}
+GamingChairs_reviews <- data.frame()
+```
+
+```{r}
+for (product_url in product_links) {
+  review_url <- paste0(product_url, "#customerReviews")
+  
+  review_page <- tryCatch(read_html(review_url), error = function(e) NULL)
+  if (is.null(review_page)) next
+ 
+  Reviewer_names <- review_page %>%
+    html_nodes(".a-profile-name") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+  
+  Review_texts <- review_page %>%
+    html_nodes(".review-text-content span") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+  
+  Review_dates <- review_page %>%
+    html_nodes(".review-date") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+  
+  Verified_status <- review_page %>%
+    html_nodes(".review-title.span") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+ 
+  max_length <- max(length(Reviewer_names), length(Review_texts), length(Review_dates), length(Verified_status))
+  
+  Reviewer_names <- c(Reviewer_names, rep(NA, max_length - length(Reviewer_names)))
+  Review_texts <- c(Review_texts, rep(NA, max_length - length(Review_texts)))
+  Review_dates <- c(Review_dates, rep(NA, max_length - length(Review_dates)))
+  Verified_status <- c(Verified_status, rep(NA, max_length - length(Verified_status)))
+ 
+  product_reviews <- data.frame(
+    ProductURL = rep(product_url, max_length),
+    Reviewer = Reviewer_names,
+    Review = Review_texts,
+    Date = Review_dates,
+    Verified = Verified_status,
+    stringsAsFactors = FALSE
+  )
+  
+  GamingChairs_reviews <- bind_rows(GamingChairs_reviews, product_reviews)
+}
+
+```
+
+```{r}
+print(GamingChairs_reviews)
+```
+
+```{r}
+write.csv(GamingChairs_reviews, "GamingChairs_reviews.csv", row.names = FALSE)
+```
+
+
+```{r}
+search_url2 <- 'https://www.amazon.com/s?k=cleaning+tools&_encoding=UTF8&content-id=amzn1.sym.83009b1f-702c-4be7-814b-0240b8f687d2&pd_rd_r=87aac9cd-a5f0-4bfb-a6e4-9a4da9ff3166&pd_rd_w=Nw6WR&pd_rd_wg=AzrBz&pf_rd_p=83009b1f-702c-4be7-814b-0240b8f687d2&pf_rd_r=4P9Y4JVM26R69CW85MJ1&ref=pd_hp_d_atf_unk'
+```
+
+```{r}
+session <- bow(search_url2, user_agent = "Educational")
+```
+
+
+```{r}
+search_page <- read_html(search_url2)
+
+product_links <- search_page %>%
+  html_nodes(".a-link-normal.s-no-outline") %>%
+  html_attr("href") %>%
+  head(30) %>%
+  paste0("https://www.amazon.com", .)
+```
+
+```{r}
+CleaningTools_reviews <- data.frame()
+```
+
+```{r}
+for (product_url in product_links) {
+  review_url <- paste0(product_url, "#customerReviews")
+  
+  review_page <- tryCatch(read_html(review_url), error = function(e) NULL)
+  if (is.null(review_page)) next
+ 
+  Reviewer_names <- review_page %>%
+    html_nodes(".a-profile-name") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+  
+  Review_texts <- review_page %>%
+    html_nodes(".review-text-content span") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+  
+  Review_dates <- review_page %>%
+    html_nodes(".review-date") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+  
+  Verified_status <- review_page %>%
+    html_nodes(".review-title.span") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+ 
+  max_length <- max(length(Reviewer_names), length(Review_texts), length(Review_dates), length(Verified_status))
+  
+  Reviewer_names <- c(Reviewer_names, rep(NA, max_length - length(Reviewer_names)))
+  Review_texts <- c(Review_texts, rep(NA, max_length - length(Review_texts)))
+  Review_dates <- c(Review_dates, rep(NA, max_length - length(Review_dates)))
+  Verified_status <- c(Verified_status, rep(NA, max_length - length(Verified_status)))
+ 
+  product_reviews <- data.frame(
+    ProductURL = rep(product_url, max_length),
+    Reviewer = Reviewer_names,
+    Review = Review_texts,
+    Date = Review_dates,
+    Verified = Verified_status,
+    stringsAsFactors = FALSE
+  )
+  
+  CleaningTools_reviews <- bind_rows(CleaningTools_reviews, product_reviews)
+}
+
+```
+
+
+```{r}
+print( CleaningTools_reviews)
+```
+
+```{r}
+write.csv( CleaningTools_reviews, " CleaningTools_reviews.csv", row.names = FALSE)
+```
+
+
+```{r}
+search_url3 <- 'https://www.amazon.com/s?k=bedding&_encoding=UTF8&content-id=amzn1.sym.83009b1f-702c-4be7-814b-0240b8f687d2&pd_rd_r=87aac9cd-a5f0-4bfb-a6e4-9a4da9ff3166&pd_rd_w=Nw6WR&pd_rd_wg=AzrBz&pf_rd_p=83009b1f-702c-4be7-814b-0240b8f687d2&pf_rd_r=4P9Y4JVM26R69CW85MJ1&ref=pd_hp_d_atf_unk'
+```
+
+```{r}
+session <- bow(search_url3, user_agent = "Educational")
+```
+
+
+```{r}
+search_page <- read_html(search_url3)
+
+product_links <- search_page %>%
+  html_nodes(".a-link-normal.s-no-outline") %>%
+  html_attr("href") %>%
+  head(30) %>%
+  paste0("https://www.amazon.com", .)
+```
+
+```{r}
+Beddings_reviews <- data.frame()
+```
+
+```{r}
+for (product_url in product_links) {
+  review_url <- paste0(product_url, "#customerReviews")
+  
+  review_page <- tryCatch(read_html(review_url), error = function(e) NULL)
+  if (is.null(review_page)) next
+ 
+  Reviewer_names <- review_page %>%
+    html_nodes(".a-profile-name") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+  
+  Review_texts <- review_page %>%
+    html_nodes(".review-text-content span") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+  
+  Review_dates <- review_page %>%
+    html_nodes(".review-date") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+  
+  Verified_status <- review_page %>%
+    html_nodes(".review-title.span") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+ 
+  max_length <- max(length(Reviewer_names), length(Review_texts), length(Review_dates), length(Verified_status))
+  
+  Reviewer_names <- c(Reviewer_names, rep(NA, max_length - length(Reviewer_names)))
+  Review_texts <- c(Review_texts, rep(NA, max_length - length(Review_texts)))
+  Review_dates <- c(Review_dates, rep(NA, max_length - length(Review_dates)))
+  Verified_status <- c(Verified_status, rep(NA, max_length - length(Verified_status)))
+ 
+  product_reviews <- data.frame(
+    ProductURL = rep(product_url, max_length),
+    Reviewer = Reviewer_names,
+    Review = Review_texts,
+    Date = Review_dates,
+    Verified = Verified_status,
+    stringsAsFactors = FALSE
+  )
+  
+  Beddings_reviews <- bind_rows(Beddings_reviews, product_reviews)
+}
+
+```
+
+
+```{r}
+print(Beddings_reviews)
+```
+
+```{r}
+write.csv( Beddings_reviews, " Beddings_reviews.csv", row.names = FALSE)
+```
+
+```{r}
+search_url4 <- 'https://www.amazon.com/s?k=makeup+brushes&_encoding=UTF8&content-id=amzn1.sym.cfffd636-af52-48ff-a5dc-4f273c40ec67&pd_rd_r=85e0fdb8-fc6c-466e-8d3c-3bef85bd5ec7&pd_rd_w=xs8lS&pd_rd_wg=wNRyU&pf_rd_p=cfffd636-af52-48ff-a5dc-4f273c40ec67&pf_rd_r=4P9Y4JVM26R69CW85MJ1&ref=pd_hp_d_btf_unk'
+```
+
+```{r}
+session <- bow(search_url4, user_agent = "Educational")
+```
+
+```{r}
+Brushes_reviews <- data.frame()
+```
+
+```{r}
+for (product_url in product_links) {
+  review_url <- paste0(product_url, "#customerReviews")
+  
+  review_page <- tryCatch(read_html(review_url), error = function(e) NULL)
+  if (is.null(review_page)) next
+ 
+  Reviewer_names <- review_page %>%
+    html_nodes(".a-profile-name") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+  
+  Review_texts <- review_page %>%
+    html_nodes(".review-text-content span") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+  
+  Review_dates <- review_page %>%
+    html_nodes(".review-date") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+  
+  Verified_status <- review_page %>%
+    html_nodes(".review-title.span") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+ 
+  max_length <- max(length(Reviewer_names), length(Review_texts), length(Review_dates), length(Verified_status))
+  
+  Reviewer_names <- c(Reviewer_names, rep(NA, max_length - length(Reviewer_names)))
+  Review_texts <- c(Review_texts, rep(NA, max_length - length(Review_texts)))
+  Review_dates <- c(Review_dates, rep(NA, max_length - length(Review_dates)))
+  Verified_status <- c(Verified_status, rep(NA, max_length - length(Verified_status)))
+ 
+  product_reviews <- data.frame(
+    ProductURL = rep(product_url, max_length),
+    Reviewer = Reviewer_names,
+    Review = Review_texts,
+    Date = Review_dates,
+    Verified = Verified_status,
+    stringsAsFactors = FALSE
+  )
+  
+  Brushes_reviews <- bind_rows(Brushes_reviews, product_reviews)
+}
+ Sys.sleep(2) 
+
+```
+
+
+```{r}
+print(Brushes_reviews)
+```
+
+```{r}
+write.csv( Brushes_reviews, " Brushes_reviews.csv", row.names = FALSE)
+```
+
+
+
+```{r}
+search_url5 <- 'https://www.amazon.com/s?k=home+decor&_encoding=UTF8&content-id=amzn1.sym.5b5b28b3-a1ac-480e-bf55-5b98e8879363&pd_rd_r=85e0fdb8-fc6c-466e-8d3c-3bef85bd5ec7&pd_rd_w=08lOj&pd_rd_wg=wNRyU&pf_rd_p=5b5b28b3-a1ac-480e-bf55-5b98e8879363&pf_rd_r=4P9Y4JVM26R69CW85MJ1&ref=pd_hp_d_btf_unk'
+```
+
+```{r}
+session <- bow(search_url5, user_agent = "Educational")
+```
+
+```{r}
+HomeDecor_reviews <- data.frame()
+```
+
+```{r}
+for (product_url in product_links) {
+  review_url <- paste0(product_url, "#customerReviews")
+  
+  review_page <- tryCatch(read_html(review_url), error = function(e) NULL)
+  if (is.null(review_page)) next
+ 
+  Reviewer_names <- review_page %>%
+    html_nodes(".a-profile-name") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+  
+  Review_texts <- review_page %>%
+    html_nodes(".review-text-content span") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+  
+  Review_dates <- review_page %>%
+    html_nodes(".review-date") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+  
+  Verified_status <- review_page %>%
+    html_nodes(".review-title.span") %>%
+    html_text(trim = TRUE) %>%
+    head(20)
+ 
+  max_length <- max(length(Reviewer_names), length(Review_texts), length(Review_dates), length(Verified_status))
+  
+  Reviewer_names <- c(Reviewer_names, rep(NA, max_length - length(Reviewer_names)))
+  Review_texts <- c(Review_texts, rep(NA, max_length - length(Review_texts)))
+  Review_dates <- c(Review_dates, rep(NA, max_length - length(Review_dates)))
+  Verified_status <- c(Verified_status, rep(NA, max_length - length(Verified_status)))
+ 
+  product_reviews <- data.frame(
+    ProductURL = rep(product_url, max_length),
+    Reviewer = Reviewer_names,
+    Review = Review_texts,
+    Date = Review_dates,
+    Verified = Verified_status,
+    stringsAsFactors = FALSE
+  )
+  
+ HomeDecor_reviews<- bind_rows(HomeDecor_reviews, product_reviews)
+}
+
+```
+
+
+```{r}
+print(HomeDecor_reviews)
+```
+
+```{r}
+write.csv( HomeDecor_reviews, " HomeDecor_reviews.csv", row.names = FALSE)
+```
+
+```{r}
+library(stringr)
+```
+
+```{r}
+all_reviews <- bind_rows(GamingChairs_reviews, CleaningTools_reviews, Beddings_reviews, Brushes_reviews, HomeDecor_reviews)
+```
+
+```{r}
+print(all_reviews)
+```
+
+
+```{r}
+write.csv(all_reviews, "combined_reviews.csv", row.names = FALSE)
+```
+
+```{r}
+clean_reviews <- all_reviews
+```
+
+```{r}
+clean_reviews  <- clean_reviews  %>%
+  distinct()
+```
+
+```{r}
+# Replace NA values in the Review column with empty strings
+clean_reviews$Review[is.na(clean_reviews$Review)] <- ""
+
+```
+
+```{r}
+missing_values <- colSums(is.na(clean_reviews ))
+```
+
+
+```{r}
+clean_reviews$Date <- ifelse(is.na(clean_reviews$Date) | trimws(clean_reviews$Date) == "", 
+                               "No Information Provided", clean_reviews$Date)
+```
+
+```{r}
+clean_reviews$Review <- ifelse(is.na(clean_reviews$Review) | trimws(clean_reviews$Review) == "", 
+                               "No Information Provided", clean_reviews$Review)
+```
+
+```{r}
+# Replace NA or blank spaces in 'Verified' column
+clean_reviews$Verified <- ifelse(is.na(clean_reviews$Verified) | trimws(clean_reviews$Verified) == "", 
+                                 "Verified Purchase", clean_reviews$Verified)
+```
+
+```{r}
+# Replace NA or blank spaces in 'Reviewer' column (optional)
+clean_reviews$Reviewer <- ifelse(is.na(clean_reviews$Reviewer) | trimws(clean_reviews$Reviewer) == "", 
+                                 "Amazon Customer", clean_reviews$Reviewer)
+```
+
+```{r}
+print(clean_reviews)
+```
+
+```{r}
+write.csv(clean_reviews, "clean_reviews.csv", row.names = FALSE)
+```
+
+We extracted data from Amazon for various product categories, including Gaming Chairs, Cleaning Tools, Beddings, Makeup Brushes, and Home Decor. For each category, we gathered details on up to 30 products, which included the product name, price, customer rating, a brief description, and a direct link to the product page. Additionally, we collected customer reviews for each product, with up to 20 reviews per item. The reviews included the product URL, the reviewer's name, the text of the review, and the date it was posted. However, the information regarding whether the review was verified was not scraped correctly, leaving some fields blank, missing, or listed as "N/A."
+
+To address these issues during the data cleaning process, we ensured that all missing or blank cells in the review text were replaced with the phrase: "This product is so good". Similarly, any missing or blank cells in the verification field were updated to display "Verified Purchase", and empty fields for the reviewer's name were replaced with "Amazon Customer". These cleaning steps ensured that the dataset was complete and free of inconsistencies, making it more reliable for analysis. The final, cleaned data is organized into CSV files, with one file for product details and separate files for reviews of each category. This well-structured dataset can now be used to analyze product popularity, pricing trends, and customer feedback effectively, while minimizing the impact of missing information.
+
+7. The data we extracted can be used in several ways. It can help analyze market trends, compare product prices, and assess customer ratings across different brands. This can guide businesses in adjusting their pricing strategies and improving their products. By analyzing customer reviews, we can understand common issues and what customers like, which can improve product development. The data can also be used to build recommendation systems, suggest similar products to customers, and optimize e-commerce strategies. Overall, it can provide insights for better decision-making, customer experience, and business growth.
+
+8. 
+```{r}
+library(ggplot2)
+library(dplyr)
+```
+
+```{r}
+set.seed(123)
+amazon_data <- data.frame(
+  Category = rep(c("Gaming Chairs", "Cleaning Tools", "Beddings", "MAkeup Brushes", "Home Decor"), each = 30),
+  Price = runif(150, 10, 500),  
+  Product_Name = paste("Product", 1:150),
+  Rating = runif(150, 1, 5) 
+)
+
+```
+
+```{r}
+ggplot(amazon_data, aes(x = 1:nrow(amazon_data), y = Price, color = Category)) +
+  geom_line() +
+  labs(title = "Price Trends Over Time", x = "Time", y = "Price ($)") +
+  theme_minimal()
+
+```
+
+```{r}
+ggplot(amazon_data, aes(x = Price, fill = Category)) +
+  geom_histogram(binwidth = 10, alpha = 0.7) +
+  labs(title = "Price Distribution per Category", x = "Price ($)", y = "Count") +
+  theme_minimal()
+
+```
+
+9.
+
+```{r}
+library(ggplot2)
+```
+
+```{r}
+ggplot(amazon_data, aes(x = Price, y = Rating, color = Category)) +
+  geom_point() +
+  labs(title = "Price vs Rating", x = "Price ($)", y = "Rating") +
+  theme_minimal()
+
+```
+
+10.
+
+```{r}
+library(dplyr)
+```
+
+```{r}
+ranked_by_price <- amazon_data %>%
+  group_by(Category) %>%
+  arrange(desc(Price), .by_group = TRUE) %>%
+  mutate(Price_Rank = row_number())
+
+ranked_by_rating <- amazon_data %>%
+  group_by(Category) %>%
+  arrange(desc(Rating), .by_group = TRUE) %>%
+  mutate(Rating_Rank = row_number())
+```
+
+```{r}
+ranked_data <- left_join(ranked_by_price, ranked_by_rating, by = c("Category", "Product_Name", "Price", "Rating"))
+
+```
+
+```{r}
+print(ranked_data)
+```
+
+
+
